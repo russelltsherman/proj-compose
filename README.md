@@ -1,1 +1,1 @@
-# proj-go
+# proj-coimpose
