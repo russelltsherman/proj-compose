@@ -1,0 +1,165 @@
+configs:
+  init.sql:
+    content: |
+      create database $KEYCLOAKDBNAME;
+      create user $KEYCLOAKDBUSER with encrypted password '$KEYCLOAKDBPASSWORD';
+      grant all privileges on database $KEYCLOAKDBNAME to $KEYCLOAKDBUSER;
+      \connect $KEYCLOAKDBNAME postgres
+      grant all on schema public to $KEYCLOAKDBUSER;
+  pgpass:
+    content: db:5432:*:${DBUSER}:${DBPASSWORD}
+  redis.conf:
+    content: |
+      loglevel $REDISLOGLEVEL
+      port 6379
+      requirepass $REDISPASSWORD
+  servers.json:
+    content: |
+      {
+        "Servers": {
+          "1": {
+            "Group": "Servers",
+            "Name": "Docker Compose",
+            "Host": "db",
+            "Port": 5432,
+            "MaintenanceDB": "postgres",
+            "Username": "${DBUSER}",
+            "PassFile": "/.pgpass",
+            "SSLMode": "prefer"
+          }
+        }
+      }
+
+services:
+  api:
+    build:
+      dockerfile: Dockerfile.dev
+      context: './api'
+    depends_on:
+      - db
+      - cache
+    environment:
+      ENV: LOCAL
+      PGUSER: ${DBUSER}
+      PGHOST: db
+      PGDATABASE: ${DBDATABASE}
+      PGPORT: 5432
+      PGPASSWORD: ${DBPASSWORD}
+      REDISHOST: cache
+      REDISPASSWORD: ${REDISPASSWORD}
+      REDISPORT: 6379
+    ports:
+      - ${APIPORT}:3000
+    restart: on-failure
+    volumes:
+      - ./api:/app
+
+  calc:
+    build:
+      dockerfile: Dockerfile.dev
+      context: './calc'
+    ports:
+      - 8000:8000
+      - 8080:8080
+    volumes:
+      - ./calc:/app
+
+  keycloak:
+    command: start-dev
+    depends_on:
+      - db
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAKADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAKADMINPASSWORD}
+      KC_DB: postgres
+      KC_DB_PASSWORD: ${KEYCLOAKDBPASSWORD}
+      KC_DB_SCHEMA: public
+      KC_DB_USERNAME: ${KEYCLOAKDBUSER}
+      KC_DB_URL: jdbc:postgresql://db/${KEYCLOAKDBNAME}
+      KC_HEALTH_ENABLED: true
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8080
+      KC_HOSTNAME_STRICT_BACKCHANNEL: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HTTP_ENABLED: true
+      KC_LOG_LEVEL: error
+      KC_METRICS_ENABLED: true
+    image: quay.io/keycloak/keycloak:25.0.1
+    ports:
+      - 8080:8080
+
+  react:
+    build:
+      dockerfile: Dockerfile.dev
+      context: './react'
+    depends_on:
+      - api
+    ports:
+      - ${CLIENTPORT}:3000
+    restart: on-failure
+    volumes:
+      - ./react/public:/app/public
+      - ./react/src:/app/src
+
+  nginx:
+    build:
+      dockerfile: Dockerfile.dev
+      context: ./nginx
+    depends_on:
+      - api
+      - react
+    ports:
+      - '3050:80'
+    restart: always
+
+  pgadmin:
+    configs:
+      - source: servers.json
+        target: /pgadmin4/servers.json
+      - source: pgpass
+        target: /var/lib/pgadmin/storage/${DBADMINDIR}/.pgpass
+    depends_on:
+      - db
+    entrypoint: |
+      /bin/sh -c "chown pgadmin:root /var/lib/pgadmin/storage/${DBADMINDIR}/.pgpass; chmod 600 /var/lib/pgadmin/storage/${DBADMINDIR}/.pgpass; /entrypoint.sh;"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${DBADMINEMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${DBADMINPASSWORD}
+    image: dpage/pgadmin4
+    ports:
+      - 8081:80
+    restart: always
+    user: root
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+
+  db:
+    configs:
+      - source: init.sql
+        target: /docker-entrypoint-initdb.d/init.sql
+    environment:
+      POSTGRES_USER: ${DBUSER}
+      POSTGRES_PASSWORD: ${DBPASSWORD}
+      POSTGRES_DB: ${DBDATABASE}
+    image: postgres:latest
+    ports:
+      - 5432:5432
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  cache:
+    command: redis-server /etc/redis/redis.conf 
+    configs:
+      - source: redis.conf
+        target: /etc/redis/redis.conf
+    image: redis:7.2-alpine
+    ports:
+      - 6379:6379
+    volumes:
+      - cache-data:/data
+
+volumes:
+  api-data:
+  db-data:
+  cache-data:
+  pgadmin-data:
