@@ -1,0 +1,18 @@
+#! /bin/env bash
+
+export APIPORT="3000"
+export CLIENTPORT="4000"
+export ENV=LOCAL
+
+export DBADMINEMAIL="dev@example.com"
+export DBADMINDIR=${DBADMINEMAIL/@/_}
+export DBDATABASE="postgres"
+export DBHOST="postgres"
+export DBPASSWORD="p@s5w0rd"
+export DBPORT="5432"
+export DBUSER="postgres"
+export PGADMINPORT="8080"
+export REDISHOST="redis"
+export REDISLOGLEVEL="debug"
+export REDISPASSWORD="p@s5w0rd"
+export REDISPORT="6379"
